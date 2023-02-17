@@ -2,70 +2,78 @@
 
 # %% ../nbs/store.ipynb 2
 from __future__ import annotations
-from typing import List, Callable, TypeVar,  Generic, Sequence
+from typing import List, Callable, TypeVar,  Generic, Sequence, Union, Optional, Any, Set
 
 # %% auto 0
-__all__ = ['T', 'subscriber_queue', 'Subscriber', 'Unsubscriber', 'Updater', 'Readable', 'Writable', 'writable', 'readable']
+__all__ = ['T', 'TSubscriber', 'TUnsubscriber', 'TUpdater', 'TStartStop', 'Readable', 'Writable', 'Subscriber']
 
 # %% ../nbs/store.ipynb 4
 T = TypeVar("T")
 
+TSubscriber = Callable[[T], None]
+TUnsubscriber = Callable[[], None]
+TUpdater = Callable[[T], T]
+TStartStop = Callable[[TSubscriber], Union[TUnsubscriber, None]]
 
-class Subscriber(Generic[T]):
-    def __call__(self, value: T) -> None:
-        ...
-class Unsubscriber:
-    def __call__(self) -> None:
-        ...
-
-class Updater(Generic[T]):
-    def __call__(self, value: T) -> T:
-        ...
-
-
+    
 class Readable(Generic[T]):
-    def subscribe(self, subscriber: Subscriber[T]) -> Unsubscriber:
-        ...
+    def __init__(self, value: T, start: Optional[TStartStop]=None) -> None:
+        self.value: T = value
+        self.start: Optional[TStartStop] = start
+        self.subscribers: set[TSubscriber] = set() # callback list
 
-class Writable(Readable, Generic[T]):
-    def set(self, value: T) -> None:
-        ...
-    def update(self, updater: Updater[T]) -> None:
-        ...
+    def __getattr__(self, name):
+        return getattr(self.value, name)
 
-subscriber_queue: List[Subscriber] = [] # callback list
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.value!r})"
 
-# %% ../nbs/store.ipynb 5
-def writable(value: T) -> Writable[T]:
-    """ Create a writable store with a given value that allows both updating and reading by subscription."""
+    def __str__(self) -> str: return str(self.value)
 
-    def __getitem__(*args, **kwargs): return value.__getitem__(*args, **kwargs) if hasattr(value, '__getitem__') else None
+    def get(self) -> T: return self.value
 
-    def set(new_value: T) -> None:
-        nonlocal value
-        if new_value != value: value = new_value
-        for subscriber in subscriber_queue: subscriber(value)
+    def _set(self, new_value: T) -> None:
+        if new_value != self.value: self.value = new_value
+        for subscriber in self.subscribers: subscriber(self.value)
 
-    def update(fn: Updater[T]) -> None: set(fn(value))
-
-    def subscribe(subscriber: Subscriber[T]) -> Unsubscriber:
-        subscriber_queue.append(subscriber)
-        subscriber(value)
-
-        def unsubscribe() -> None:
-            subscriber_queue.remove(subscriber)
-
+    def subscribe(self, subscriber: TSubscriber) -> TUnsubscriber:
+        self.subscribers.add(subscriber)
+        subscriber(self.value)
+        if (len(self.subscribers) == 1):
+             if self.start is not None: 
+                self.stop: Union[TUnsubscriber, None] =  self.start(self._set) 
+        def unsubscribe()-> None:
+            self.subscribers.remove(subscriber)
+        if isinstance(subscriber, Subscriber): subscriber.add_subscription(unsubscribe)
         return unsubscribe
 
-    ret = Writable() # type: ignore
-    ret.set = set # type: ignore
-    ret.update = update # type: ignore
-    ret.subscribe = subscribe
+class Writable(Readable[T]):
 
-    return ret
+    def set(self, new_value: T) -> None:
+        self._set(new_value)
+    
+    def update(self, fn: TUpdater) -> None: self.set(fn(self.value))
 
-# %% ../nbs/store.ipynb 6
-def readable(value: T) -> Readable[T]:
-    ret = Readable()
-    ret.subscribe = writable(value).subscribe
-    return ret
+
+class Subscriber(Generic[T]):
+    """ Represents a subscriber (a callback) to a store (an observable)."""
+    def __init__(self, fn: Callable[[T], None], observable: Optional[Union[Readable[T], Writable[T]]]) -> None:
+        self.fn = fn
+        self.subscriptions: Set[Callable[[], None]] = set()
+
+    def __call__(self, value: T) -> None:
+        self.fn(value)
+
+    def __eq__(self, other: Callable[[T], None]) -> bool:
+        return self.fn == other.fn
+
+    def __hash__(self) -> int:
+        return hash(self.fn)
+    
+    def __del__(self)-> None:
+        for unsubscribe in self.subscriptions: unsubscribe()
+        
+    def add_subscription(self, unsubscribe: Callable[[], None])-> None:
+        self.subscriptions.add(unsubscribe)
+    
+
