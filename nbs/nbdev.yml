@@ -2,8 +2,8 @@ project:
   output-dir: _docs
 
 website:
-  title: "nbdev-mwe"
-  site-url: "https://fredguth.github.io/nbdev-mwe"
-  description: "mwe of nbdev error"
+  title: "miniai-playground"
+  site-url: "https://fredguth.github.io/miniai-playground"
+  description: "Mini learner package"
   repo-branch: main
-  repo-url: "https://github.com/fredguth/nbdev-mwe"
+  repo-url: "https://github.com/fredguth/miniai-playground"
