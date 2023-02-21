@@ -1,0 +1,65 @@
+[
+  {
+    "objectID": "core.html",
+    "href": "core.html",
+    "title": "core",
+    "section": "",
+    "text": "source\n\nsafe_not_equal\n\n safe_not_equal (a, b)\n\nCheck if a is not equal to b\n\ntest_eq(safe_not_equal(1,2), True)\n\n\ntest_eq(safe_not_equal(0,False), False)\n\nFalse\n\n\n\ntest_eq(safe_not_equal(object(), object()), True)\n\n\ntest_eq(safe_not_equal({\"a\":1}, {\"a\":1}), False)"
+  },
+  {
+    "objectID": "store.html",
+    "href": "store.html",
+    "title": "Svelty Stores",
+    "section": "",
+    "text": "A store must contain a .subscribe method, which must accept as its argument a subscription function(aka Subscriber or Callback). This subscription function must be immediately and synchronously called with the store’s current value upon calling subscribe. All of a store’s active subscription functions must later be synchronously called whenever the store’s value changes.\nThe .subscribe method must return an unsubscribe function(aka Unsubscriber). Calling an unsubscribe function must stop its subscription, and its corresponding subscription function must not be called again by the store.\nA store may optionally contain a .set method, which must accept as its argument a new value for the store, and which synchronously calls all of the store’s active subscription functions. Such a store is called a writable store.\n\nFor interoperability with RxJS Observables, the .subscribe method is also allowed to return an object with an .unsubscribe method, rather than return the unsubscription function directly. Note however that unless .subscribe synchronously calls the subscription (which is not required by the Observable spec), Svelte will see the value of the store as undefined until it does.\nStore Contract Documentation\n\n\n\nT = TypeVar(\"T\")\ncovT = TypeVar(\"covT\", covariant=True)\nSubscriber = Callable[[T], None] # a callback\nUnsubscriber = Callable[[], None] # a callback to be used upon termination of the subscription    \nUpdater = Callable[[T], T]\n\n\nclass StoreProtocol(Protocol, Generic[covT]):\n    ''' The Svelte Store ~~contract~~ protocol. '''\n    def subscribe(self, subscriber: Subscriber[T]) -> Unsubscriber: ...\n\n\nsource\n\n\n\n\n StoreProtocol (*args, **kwargs)\n\nThe Svelte Store contract protocol."
+  },
+  {
+    "objectID": "store.html#writable-stores",
+    "href": "store.html#writable-stores",
+    "title": "Svelty Stores",
+    "section": "Writable Stores",
+    "text": "Writable Stores\nLet’s start with a simple implementation of a writable store:\n\nfrom miniai_playground.core import safe_not_equal\n\n\nclass Writable(Store[T]):\n    ''' A Writable Stores.'''\n    def __init__(self, \n                 initial_value: T = None # the initial value of the store\n                 ) -> None:\n        self.value: T = initial_value\n        self.subscribers: Set[Subscriber] = set() # callbacks to be called when the value changes\n\n    def subscribe(self, callback: Subscriber) -> Unsubscriber:\n        self.subscribers.add(callback)\n        callback(self.value)\n\n        def unsubscribe() -> None:\n            # the unsubscribe can be called multiple times, \n            # so we need to check if the callback is still in the set\n            self.subscribers.remove(callback) if callback in self.subscribers else None\n        return unsubscribe\n    \n    def set(self, new_value: T) -> None:\n        if (safe_not_equal(self.value, new_value)):\n            self.value = new_value\n            for subscriber in self.subscribers:\n                subscriber(new_value)\n                \n    def update(self, fn: Callable[[T], T]) -> None:\n        self.set(fn(self.value))\n    \n    def __len__(self) -> int:\n        ''' The length of the store is the number of subscribers.'''\n        return len(self.subscribers)\n\n\nA Writable Store in action\nLet’s create a Writable. Remember that it returns an unsubscriber function.\n\n#del count, values, store, unsubscribe\n\n\ncount = Writable(0)\nvalues = []\nunsubscribe = count.subscribe(lambda x: values.append(x))\ncount, values, type(unsubscribe)\n\n(Writable(0), [0], function)\n\n\nA Writable can be set from the outside. When it happens, all its subscribers will react.\n\ncount.set(1)\ncount.update(lambda x: x+1)\ncount, values\n\n(Writable(2), [0, 1, 2])\n\n\nAfter unsubscribing, the subscriber should not be called anymore:\n\nunsubscribe()\ncount.set(3)\ncount.update(lambda x: x+1)\ncount, values\n\n(Writable(4), [0, 1, 2])\n\n\nYou can create an empty Writable Store.\n\nstore = Writable()\nvalues = []\nunsubscribe = store.subscribe(lambda x: values.append(x))\nunsubscribe()\nstore, values\n\n(Writable(None), [None])\n\n\nIf you try to unsubscibe twice, it won’t break. It just does nothing the second time.\n\nunsubscribe()\n\nStores assume mutable objects.\n\n\n\n\n\n\nNote\n\n\n\nIn Python everythong is an object. Here we are calling an object something that is not a primitive (eg. int, bool, etc)\n\n\n\nclass Bunch:\n    __init__ = lambda self, **kw: setattr(self, '__dict__', kw)\n\nobj = Bunch()\ncalled = 0\nstore = Writable(obj)\ndef callback(x):\n    global called\n    called += 1\nstore.subscribe(callback)\nobj.a = 1 #type: ignore\nstore.set(obj)\nstore, called\n\n(Writable(<__main__.Bunch object at 0x7f18d82db610>), 2)"
+  },
+  {
+    "objectID": "store.html#readable-store",
+    "href": "store.html#readable-store",
+    "title": "Svelty Stores",
+    "section": "Readable Store",
+    "text": "Readable Store\nA Readable Store is a Writable Store with protected set and update methods.\n\nclass Readable(Writable): \n    ''' A Readable Store.'''\n    def set(self, *args, **kwargs): raise Exception(\"Cannot set a Readable Store.\")\n    def update(self, *args, **kwargs): raise Exception(\"Cannot update a Readable Store.\")\n\n\nb = Readable(10)\n\n\nu = b.subscribe(lambda x: print(\"2:\",x))\n\n2: 10\n\n\nWe can subscribe to our readable, but nothing happens, we cannot set a Readable from the outside.\n\ntry:\n    b.set(\"bar\") # should fail\nexcept Exception as error:\n  print(error)\n\nCannot set a Readable Store.\n\n\nYou also can create an empty Readable Store.\n\nstore = Readable()\nvalues = []\nunsubscribe = store.subscribe(lambda x: values.append(x))\nunsubscribe()\nstore, values\n\n(Readable(None), [None])\n\n\nA store that does not change is not useful. A Readable is like a writable where there is only one “thing” from the outside that can change its value. Lets change writable to add this “thing”, which we will call a Notifier.\n\nsource\n\nWritable\n\n Writable (initial_value:T=None, start:Notifier=<function <lambda>>)\n\nA Writable Store.\n\n\n\n\nType\nDefault\nDetails\n\n\n\n\ninitial_value\nT\nNone\nThe initial value of the store\n\n\nstart\nNotifier\n\nA Notifier (Optional)\n\n\nReturns\nNone\n\n\n\n\n\n\nnbdev.show_doc(Writable, title_level=3)\n\n\nsource\n\nWritable\n\n Writable (initial_value:T=None, start:Notifier=<function <lambda>>)\n\nA Writable Store.\n\n\n\n\nType\nDefault\nDetails\n\n\n\n\ninitial_value\nT\nNone\nThe initial value of the store\n\n\nstart\nNotifier\n\nA Notifier (Optional)\n\n\nReturns\nNone\n\n\n\n\n\n\n\n\nBut now, we can start the store with a Notifier that asynchronously set the value of the store from the outside.\nLet’s test by creating an asynchronous notifier.\n\nfrom threading import Event, Thread\nimport time\n\n\ndef every(interval, func, *args):\n    stopped = Event()\n    def loop():\n        while not stopped.wait(interval): # the first call is in `interval` secs\n            func(*args)\n    Thread(target=loop).start()    \n    return stopped.set\n\ndef start(set): # notifier\n    count = 0\n    def incrementCounter():\n        nonlocal count\n        count = count +1\n        set(count)\n    cancel = every(1, incrementCounter)\n    return cancel\n\ndef myset(x):\n    value = x\n    print(\"myset:\", value)\n\n\nstop = start(myset)\ntime.sleep(3)\nstop()\n\nmyset: 1\nmyset: 2\nmyset: 3\n\n\n\nb = Writable(0, start)\n\n\nb\n\nWritable(0)\n\n\n\nu1 = b.subscribe(lambda x: print(\"1:\",x))\n\n1: 0\n\n\n\ntime.sleep(4)\nu1()\n\n1: 1\n1: 2\n1: 3\n1: 4\n\n\nNice, it works. Now, let’s fix Readable.\n\nsource\n\n\nReadable\n\n Readable (initial_value:T, start:Notifier)\n\nA Writable Store.\n\n\nA Readable in action\nNow, we need to provide a Notifier to create a Readable store:\n\ntry:\n    c = Readable(0) # shoud fail\nexcept Exception as error:\n    print(error)\n\n__init__() missing 1 required positional argument: 'start'\n\n\n::: {.callout-note} The Svelte Store api allow you to create a Readable Store without a Notifier. See discussion here.\n\nc = Readable(0, start)\nc\n\nReadable(0)\n\n\nNotice that while there is no subscribers, the Notifier is not started.\n\ntime.sleep(3)\nc\n\nReadable(0)\n\n\nThe first subscriber starts the Notifier.\n\nstop = c.subscribe(lambda x: print(\"1:\",x))\n\n1: 0\n\n\n\ntime.sleep(3)\nstop()"
+  },
+  {
+    "objectID": "store.html#derived-store",
+    "href": "store.html#derived-store",
+    "title": "Svelty Stores",
+    "section": "Derived Store",
+    "text": "Derived Store\nA Derived Store takes a store and transforms it in another store.\n\nsource\n\nDerived\n\n Derived (source:Store, fn:Updater)\n\nA Writable Store.\n\n\nA Derived in action\n\na = Writable(1)\nu1 = a.subscribe(lambda x: print(\"1:\",x))\n\n1: 1\n\n\n\nb = Derived(a, lambda x: x*2)\n\n\na,b\n\n(Writable(1), Derived(2))\n\n\n\na, b.get()\n\n(Writable(1), 2)\n\n\n\na.set(2), a,b\n\n1: 2\n\n\n(None, Writable(2), Derived(4))\n\n\n\nu1 = b.subscribe(lambda x: print(\"2:\",x))\n\n2: 4\n\n\n\na.set(42)\n\n2: 84\n1: 42\n\n\n\nuser = Writable({\"name\": \"John\", \"age\": 42})\nuser\n\nWritable({'name': 'John', 'age': 42})\n\n\n\nuser.update(lambda x: x | {\"age\": 21})\nuser\n\nWritable({'name': 'John', 'age': 21})\n\n\n\nu1 = user.subscribe(lambda x: print(\"user_subscriber_1:\",x))\n\nuser_subscriber_1: {'name': 'John', 'age': 21}\n\n\n\nuser.update(lambda x: x | {\"age\": 42})\n\nuser_subscriber_1: {'name': 'John', 'age': 42}\n\n\n\nname = Derived(user, lambda x: x[\"name\"])\nname\n\nDerived('John')\n\n\n\nu2 = name.subscribe(lambda x: print(\"name_subscriber_1:\",x))\n\nname_subscriber_1: John\n\n\n\nuser.update(lambda x: x | {\"age\": 56})\n\nuser_subscriber_1: {'name': 'John', 'age': 56}\n\n\n\nuser.update(lambda x: x | {\"name\": \"Fred\"})\n\nname_subscriber_1: Fred\nuser_subscriber_1: {'name': 'Fred', 'age': 56}"
+  },
+  {
+    "objectID": "store.html#export-",
+    "href": "store.html#export-",
+    "title": "Svelty Stores",
+    "section": "Export-",
+    "text": "Export-"
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "nbdev-mwe",
+    "section": "",
+    "text": "This file will become your README and also the index of your documentation."
+  },
+  {
+    "objectID": "index.html#install",
+    "href": "index.html#install",
+    "title": "nbdev-mwe",
+    "section": "Install",
+    "text": "Install\npip install nbdev_mwe"
+  },
+  {
+    "objectID": "index.html#how-to-use",
+    "href": "index.html#how-to-use",
+    "title": "nbdev-mwe",
+    "section": "How to use",
+    "text": "How to use\nFill me in please! Don’t forget code examples:\n\n1+1\n\n2"
+  }
+]
